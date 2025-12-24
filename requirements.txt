@@ -1,0 +1,7 @@
+customtkinter
+dxcam_cpp
+keyboard
+opencv-python
+pillow
+pyinstaller
+tomlkit
