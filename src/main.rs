@@ -311,13 +311,35 @@ fn parse_hotkey(s: &str) -> HotKey {
 }
 
 
+fn load_icon() -> Option<egui::IconData> {
+    if let Ok(image) = image::open("res/icon.ico") {
+        let image = image.into_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        Some(egui::IconData {
+            rgba,
+            width,
+            height,
+        })
+    } else {
+        None
+    }
+}
+
 fn main() -> eframe::Result<()> {
     env_logger::init();
     
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([600.0, 400.0])
+        .with_title("Auto Shake RS")
+        .with_transparent(true);
+
+    if let Some(icon) = load_icon() {
+        viewport = viewport.with_icon(std::sync::Arc::new(icon));
+    }
+
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([600.0, 400.0])
-            .with_title("Auto Shake RS"),
+        viewport,
         ..Default::default()
     };
     
