@@ -94,6 +94,9 @@ class AutoShakeApp(ctk.CTk):
         self.capture_box.capture_x = self.config_data['ocr']['capture_x']
         self.capture_box.capture_y = self.config_data['ocr']['capture_y']
         self.enable_overlay = self.config_data['ui']['enable_overlay']
+        self.enable_detection = self.config_data['ocr']['enable_detection']
+        self.shake_delay = self.config_data['ocr']['shake_delay']
+        self.pixel_tolerance = self.config_data['ocr']['pixel_tolerance']
 
         # Bind virtual events
         self.bind("<<ToggleBox>>", lambda e: self._toggle_box())
@@ -141,6 +144,7 @@ class AutoShakeApp(ctk.CTk):
 
         self.home_tab = self.tab_view.add("Home")
         self.settings_tab = self.tab_view.add("Settings")
+        self.hotkeys_tab = self.tab_view.add("Hotkeys")
 
         # --- HOME TAB ---
         self.description = ctk.CTkLabel(
@@ -161,12 +165,50 @@ class AutoShakeApp(ctk.CTk):
         self.settings_frame.pack(fill="both", expand=True, padx=10, pady=10)
         self.settings_frame.grid_columnconfigure(1, weight=1)
 
-        # Hotkey Entries
+        # Overlay entries
+        ctk.CTkLabel(self.settings_frame, text="Status Overlay").grid(row=0, column=0, padx=15, pady=15, sticky="w")
+        self.overlay_var = ctk.BooleanVar(value=self.enable_overlay)
+        overlay_cb = ctk.CTkSwitch(self.settings_frame, text="", variable=self.overlay_var)
+        overlay_cb.grid(row=0, column=1, padx=10, pady=15, sticky="ew")
+
+        # Detection entries
+        ctk.CTkLabel(self.settings_frame, text="Enable Detection").grid(row=1, column=0, padx=15, pady=15, sticky="w")
+        self.detection_var = ctk.BooleanVar(value=self.enable_detection)
+        detection_cb = ctk.CTkSwitch(self.settings_frame, text="", variable=self.detection_var, command=self.toggle_shake_delay_visibility)
+        detection_cb.grid(row=1, column=1, padx=10, pady=15, sticky="ew")
+
+        # Pixel Tolerance entries (only shown when detection is enable)
+        self.pixel_tolerance_label = ctk.CTkLabel(self.settings_frame, text="Pixel Tolerance")
+        self.pixel_tolerance_label.grid(row=2, column=0, padx=15, pady=15, sticky="w")
+        self.pixel_tolerance_var = ctk.StringVar(value=str(self.pixel_tolerance))
+        self.pixel_tolerance_entry = ctk.CTkEntry(self.settings_frame, textvariable=self.pixel_tolerance_var)
+        self.pixel_tolerance_entry.grid(row=2, column=1, padx=10, pady=15, sticky="ew")
+
+        # Shake Delay entries (only shown when detection is disabled)
+        self.shake_delay_label = ctk.CTkLabel(self.settings_frame, text="Shake Delay")
+        self.shake_delay_label.grid(row=2, column=0, padx=15, pady=15, sticky="w")
+        self.shake_delay_var = ctk.StringVar(value=str(self.shake_delay))
+        self.shake_delay_entry = ctk.CTkEntry(self.settings_frame, textvariable=self.shake_delay_var)
+        self.shake_delay_entry.grid(row=2, column=1, padx=10, pady=15, sticky="ew")
+
+        # Set initial visibility
+        self.toggle_shake_delay_visibility()
+
+        # Save button for Settings tab
+        self.settings_save_btn = ctk.CTkButton(self.settings_frame, text="Save & Apply", command=self.save_and_apply_config)
+        self.settings_save_btn.grid(row=3, column=0, columnspan=2, pady=20)
+
+        # --- HOTKEYS TAB ---
+        self.hotkeys_frame = ctk.CTkFrame(self.hotkeys_tab)
+        self.hotkeys_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.hotkeys_frame.grid_columnconfigure(1, weight=1)
+
+        # Hotkeys entries
         self.hk_entries = {}
 
         def add_hk_row(row, label, key):
-            ctk.CTkLabel(self.settings_frame, text=label).grid(row=row, column=0, padx=15, pady=15, sticky="w")
-            entry = ctk.CTkEntry(self.settings_frame)
+            ctk.CTkLabel(self.hotkeys_frame, text=label).grid(row=row, column=0, padx=15, pady=15, sticky="w")
+            entry = ctk.CTkEntry(self.hotkeys_frame)
             current_val = self.config_data['hotkeys'].get(key, "")
             entry.insert(0, current_val)
             entry.grid(row=row, column=1, padx=10, pady=15, sticky="ew")
@@ -176,13 +218,7 @@ class AutoShakeApp(ctk.CTk):
         add_hk_row(1, "Start/Stop:", "toggle_action")
         add_hk_row(2, "Exit App:", "exit_app")
 
-        # Overlay entries
-        ctk.CTkLabel(self.settings_frame, text="Status Overlay").grid(row=3, column=0, padx=15, pady=15, sticky="w")
-        self.overlay_var = ctk.BooleanVar(value=self.enable_overlay)
-        overlay_cb = ctk.CTkSwitch(self.settings_frame, text="", variable=self.overlay_var)
-        overlay_cb.grid(row=3, column=1, padx=10, pady=15, sticky="ew")
-
-        self.save_btn = ctk.CTkButton(self.settings_frame, text="Save & Apply", command=self.save_and_apply_config)
+        self.save_btn = ctk.CTkButton(self.hotkeys_frame, text="Save & Apply Hotkeys", command=self.save_and_apply_hotkeys)
         self.save_btn.grid(row=4, column=0, columnspan=2, pady=20)
 
     def create_status_window(self):
@@ -307,24 +343,27 @@ class AutoShakeApp(ctk.CTk):
     def capture_worker(self):
         while not self.force_stop.is_set():
             self.active.wait()
-            
-            frame = self.capture_screen()
-            if frame is None:
-                continue
+            if self.enable_detection:
+                frame = self.capture_screen()
+                if frame is None:
+                    continue
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
-            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                _, thresh = cv2.threshold(gray, self.pixel_tolerance, 255, cv2.THRESH_BINARY)
+                contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-            detected = False
-            for cnt in contours:
-                x, y, w, h = cv2.boundingRect(cnt)
-                if w > 40 and h > 40:
-                    detected = True
-                    break
+                detected = False
+                for cnt in contours:
+                    x, y, w, h = cv2.boundingRect(cnt)
+                    if w > 40 and h > 40:
+                        detected = True
+                        break
 
-            if detected:
+                if detected:
+                    kb.press_and_release('enter')
+            else:
                 kb.press_and_release('enter')
+                time.sleep(self.shake_delay / 1000)
 
     def load_config(self):
         default_config = {
@@ -332,7 +371,10 @@ class AutoShakeApp(ctk.CTk):
                 "capture_width": 1162,
                 "capture_height": 586,
                 "capture_x": 122,
-                "capture_y": 40
+                "capture_y": 40,
+                "enable_detection": True,
+                "shake_delay": 100,
+                "pixel_tolerance": 2
             },
             "hotkeys": {
                 "toggle_box": "F3",
@@ -367,19 +409,45 @@ class AutoShakeApp(ctk.CTk):
         self.config_data["ocr"]["capture_height"] = self.capture_box.capture_height
         self.config_data["ocr"]["capture_x"] = self.capture_box.capture_x
         self.config_data["ocr"]["capture_y"] = self.capture_box.capture_y
+        self.config_data["ocr"]["enable_detection"] = self.enable_detection
+        self.config_data["ocr"]["shake_delay"] = self.shake_delay
         self.save_config_file(self.config_data)
 
+    def toggle_shake_delay_visibility(self):
+        """Show/hide shake delay setting based on enable_detection"""
+        if self.detection_var.get():
+            # Detection enabled - hide shake delay
+            self.shake_delay_label.grid_remove()
+            self.shake_delay_entry.grid_remove()
+            self.pixel_tolerance_label.grid()
+            self.pixel_tolerance_entry.grid()
+        else:
+            # Detection disabled - show shake delay
+            self.shake_delay_label.grid()
+            self.shake_delay_entry.grid()
+            self.pixel_tolerance_label.grid_remove()
+            self.pixel_tolerance_entry.grid_remove()
+
     def save_and_apply_config(self):
-        # Update config data from UI
+        # Update detection and shake delay settings
+        self.enable_detection = self.detection_var.get()
+        try:
+            self.shake_delay = int(self.shake_delay_var.get())
+            self.pixel_tolerance = int(self.pixel_tolerance_var.get())
+        except ValueError:
+            self.shake_delay = 100  # Default fallback
+            self.pixel_tolerance = 2  # Default fallback
+        
+        self.config_data["ui"]["enable_overlay"] = self.overlay_var.get()
+        self.config_data["ocr"]["enable_detection"] = self.enable_detection
+        self.config_data["ocr"]["shake_delay"] = self.shake_delay
+        self.config_data["ocr"]["pixel_tolerance"] = self.pixel_tolerance
+        self.save_config_file(self.config_data)
+
+    def save_and_apply_hotkeys(self):
+        # Update hotkeys settings
         for key, entry in self.hk_entries.items():
             self.config_data["hotkeys"][key] = entry.get()
-        if self.overlay_var.get() != self.enable_overlay:
-            self.enable_overlay = self.overlay_var.get()
-            if self.enable_overlay:
-                self.show_status_window()
-            else:
-                self.hide_status_window()
-        self.config_data["ui"]["enable_overlay"] = self.overlay_var.get()
         self.save_config_file(self.config_data)
         self.apply_hotkeys()
 
