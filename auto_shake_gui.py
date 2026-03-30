@@ -149,7 +149,7 @@ class AutoShakeApp(ctk.CTk):
         # --- HOME TAB ---
         self.description = ctk.CTkLabel(
             self.home_tab, 
-            text="Simple Auto Shake for roblox fisch (Navigation Mode)\nWhen active, it will detect the shake box and press enter.\nMake sure to setup the navigation mode in roblox before activation.", 
+            text="Simple Auto Shake for roblox fisch\nWhen active, it will detect the shake box and press enter.\nNavigation mode is optional since Fisch v1.77.0.",
             font=("Arial", 14)
         )
         self.description.pack(pady=20)

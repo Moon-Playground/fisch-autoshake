@@ -1,4 +1,5 @@
 build/
 dist/
 
+*.bat
 auto_shake.toml
